@@ -1,80 +1,171 @@
-# SIM Card Manager - API and Database Setup
+# SIM Card Manager - Android Application
 
-## Overview
-This project includes a complete SIM Card Manager Android app with PHP API endpoints and MySQL database setup.
+## 📱 Overview
 
-## Database Setup
+A comprehensive Android application for managing SIM cards, telecom plans, and SIM switching operations. Built with modern Android development practices and MVVM architecture.
 
-### 1. Database Configuration
-- **Database Name**: `directdevhub_task`
-- **Username**: `directdevhub_task`
-- **Password**: `Allah786@2025`
-- **Host**: `localhost`
+## 🏗️ Architecture
 
-### 2. Database Tables
+### MVVM (Model-View-ViewModel) Architecture
 
-#### simcards Table
-```sql
-CREATE TABLE `simcards` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
-  `slot_number` int(11) NOT NULL,
-  `carrier_name` varchar(255) DEFAULT NULL,
-  `sim_state` varchar(50) NOT NULL DEFAULT 'READY',
-  `network_type` varchar(50) DEFAULT NULL,
-  `iccid` varchar(50) DEFAULT NULL,
-  `imsi` varchar(50) DEFAULT NULL,
-  `phone_number` varchar(20) DEFAULT NULL,
-  `country_code` varchar(10) DEFAULT NULL,
-  `is_active` tinyint(1) DEFAULT 0,
-  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`)
-);
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        VIEW LAYER                              │
+├─────────────────────────────────────────────────────────────────┤
+│  Activities/Fragments                                          │
+│  • MainActivity                                               │
+│  • TelecomPlansActivity                                       │
+│  • SimSwitchDialogFragment                                    │
+│                                                                │
+│  Responsibilities:                                             │
+│  • UI rendering and user interaction                          │
+│  • Lifecycle management                                       │
+│  • Permission handling                                        │
+│  • Observing ViewModel LiveData                               │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     VIEWMODEL LAYER                            │
+├─────────────────────────────────────────────────────────────────┤
+│  ViewModels                                                   │
+│  • SimCardViewModel                                           │
+│  • TelecomPlansViewModel                                      │
+│                                                                │
+│  Responsibilities:                                             │
+│  • Manages UI state and business logic                        │
+│  • Handles data operations through Repository                 │
+│  • Provides LiveData for reactive UI updates                  │
+│  • Survives configuration changes                             │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                       MODEL LAYER                              │
+├─────────────────────────────────────────────────────────────────┤
+│  Repositories                                                 │
+│  • TelephonyRepository                                        │
+│  • SimSwitchRepository                                        │
+│  • TelecomRepository                                          │
+│                                                                │
+│  Data Sources                                                 │
+│  • Room Database (Local)                                      │
+│  • Retrofit API (Remote)                                      │
+│  • Android TelephonyManager (System)                          │
+│                                                                │
+│  Responsibilities:                                             │
+│  • Data operations and business logic                         │
+│  • API communication                                          │
+│  • Database management                                        │
+│  • Offline-first approach                                     │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-#### telecom_plans Table
-```sql
-CREATE TABLE `telecom_plans` (
-  `id` varchar(50) NOT NULL,
-  `name` varchar(255) NOT NULL,
-  `price` decimal(10,2) NOT NULL,
-  `data` varchar(100) NOT NULL,
-  `carrier_name` varchar(255) DEFAULT NULL,
-  `plan_type` varchar(50) DEFAULT 'POSTPAID',
-  `contract_length` int(11) DEFAULT NULL,
-  `features` text DEFAULT NULL,
-  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`)
-);
+### Data Flow
+
+```
+User Action → View → ViewModel → Repository → Data Source
+     ↑                                                      │
+     └────────── LiveData ←───────────←───────────←─────────┘
 ```
 
-### 3. Setup Instructions
+## 🚀 Features
 
-1. **Import Database Schema**:
-   ```bash
-   mysql -u directdevhub_task -p directdevhub_task < database_setup.sql
-   ```
+### ✅ Core Features
+- **SIM Card Management**: Real-time SIM card information retrieval
+- **Multi-SIM Support**: Detection and management of multiple SIM slots
+- **Telecom Plans**: Browse and manage telecom plans from API
+- **SIM Switching**: Manual SIM switching with background sync
+- **Offline Support**: Works without internet connection
+- **Permission Handling**: Comprehensive permission management
 
-2. **Upload PHP Files**:
-   - Upload `simcards.php` to your web server
-   - Upload `telecom_plans.php` to your web server
+### ✅ Technical Features
+- **MVVM Architecture**: Clean separation of concerns
+- **Room Database**: Local caching and offline support
+- **Retrofit**: API communication with offline-first approach
+- **WorkManager**: Battery-efficient background tasks
+- **Coroutines**: Asynchronous operations
+- **ViewBinding**: Type-safe view access
+- **LiveData**: Reactive UI updates
 
-## API Endpoints
+## 📋 Prerequisites
+
+### Android Development
+- Android Studio Arctic Fox or later
+- Android SDK 24+ (API Level 24)
+- Kotlin 1.8+
+- Gradle 7.0+
+
+### Backend Requirements
+- PHP 7.4+
+- MySQL 5.7+
+- Web server (Apache/Nginx)
+
+## 🛠️ Setup Instructions
+
+### 1. Android Application Setup
+
+```bash
+# Clone the repository
+git clone <repository-url>
+cd SimCardManager
+
+# Open in Android Studio
+# Sync Gradle files
+# Build the project
+```
+
+### 2. Database Setup
+
+```sql
+-- Create database
+CREATE DATABASE directdevhub_task;
+
+-- Import schema and data
+mysql -u directdevhub_task -p directdevhub_task < database_setup.sql
+```
+
+### 3. API Setup
+
+```bash
+# Upload PHP files to web server
+# Update API base URL in TelecomRetrofitClient.kt
+private const val BASE_URL = "https://your-domain.com/task/"
+```
+
+### 4. Configuration
+
+#### Database Configuration
+Update database credentials in PHP files:
+```php
+$host = 'localhost';
+$dbname = 'directdevhub_task';
+$username = 'your_username';
+$password = 'your_password';
+```
+
+#### API Configuration
+Update API base URL in Android app:
+```kotlin
+// app/src/main/java/com/ultranet/simcardmanager/data/api/TelecomRetrofitClient.kt
+private const val BASE_URL = "https://your-domain.com/task/"
+```
+
+## 📚 API Documentation
 
 ### Base URL
 ```
-http://simcards.directdevhub.com/
+https://your-domain.com/task/
 ```
 
 ### SIM Cards API
 
 #### Get All SIM Cards
-```
+```http
 GET /simcards.php
 ```
 
-**Response**:
+**Response:**
 ```json
 {
   "success": true,
@@ -99,12 +190,12 @@ GET /simcards.php
 ```
 
 #### Get SIM Card by ID
-```
+```http
 GET /simcards.php/{id}
 ```
 
 #### Create SIM Card
-```
+```http
 POST /simcards.php
 Content-Type: application/json
 
@@ -121,134 +212,273 @@ Content-Type: application/json
 }
 ```
 
-#### Update SIM Card
-```
-PUT /simcards.php/{id}
-Content-Type: application/json
-
-{
-  "slot_number": 0,
-  "carrier_name": "AT&T Mobility",
-  "sim_state": "READY",
-  "network_type": "5G"
-}
-```
-
-#### Delete SIM Card
-```
-DELETE /simcards.php/{id}
-```
-
 ### Telecom Plans API
 
 #### Get All Telecom Plans
-```
+```http
 GET /telecom_plans.php
 ```
 
 #### Get Plans by Carrier
-```
+```http
 GET /telecom_plans.php?carrier=Verizon
 ```
 
 #### Get Plan by ID
-```
+```http
 GET /telecom_plans.php/{id}
 ```
 
-#### Create Telecom Plan
-```
-POST /telecom_plans.php
-Content-Type: application/json
+## 🔧 Telecom-Specific Challenges & Solutions
 
-{
-  "id": "plan_11",
-  "name": "New Plan",
-  "price": 39.99,
-  "data": "10GB",
-  "carrier_name": "Verizon Wireless",
-  "plan_type": "POSTPAID",
-  "contract_length": 24,
-  "features": "Unlimited talk, Unlimited text, 10GB data"
+### 1. Android Version Compatibility
+
+**Challenge**: Different Android versions have varying telephony APIs.
+
+**Solution**:
+```kotlin
+// Handle different Android versions
+if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+    // Use SubscriptionManager for multi-SIM support
+    val subscriptionManager = context.getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE)
+} else {
+    // Fallback for older Android versions
+    val telephonyManager = context.getSystemService(Context.TELEPHONY_SERVICE)
 }
 ```
 
-## Android App Integration
+### 2. Permission Management
 
-### Update API Base URL
-The Android app is configured to use the real API endpoint:
+**Challenge**: Telephony features require specific permissions.
+
+**Solution**:
 ```kotlin
-private const val BASE_URL = "http://simcards.directdevhub.com/"
+// Comprehensive permission handling
+val REQUIRED_PERMISSIONS = arrayOf(
+    Manifest.permission.READ_PHONE_STATE,
+    Manifest.permission.READ_PHONE_NUMBERS
+)
+
+// Check permissions before operations
+if (ActivityCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED) {
+    // Proceed with telephony operations
+} else {
+    // Provide fallback data
+}
 ```
 
-### Features
-- ✅ Offline-first architecture with Room database
-- ✅ Real-time SIM card information
-- ✅ Telecom plans management
-- ✅ Background data synchronization
-- ✅ Modern Material Design UI
-- ✅ Pull-to-refresh functionality
-- ✅ Error handling and user feedback
+### 3. Multi-SIM Support
 
-## Dummy Data Included
+**Challenge**: Different devices support different numbers of SIM slots.
 
-### SIM Cards (10 records)
-- Verizon Wireless, AT&T Mobility, T-Mobile US
-- Various states: READY, ABSENT, PIN_REQUIRED, NETWORK_LOCKED
-- Different network types: LTE, 5G, 4G, 3G
+**Solution**:
+```kotlin
+// Detect multi-SIM support
+fun isMultiSimSupported(context: Context): Boolean {
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        context.packageManager.hasSystemFeature(PackageManager.FEATURE_TELEPHONY_SUBSCRIPTION)
+    } else {
+        false // Assume single SIM for older devices
+    }
+}
+```
 
-### Telecom Plans (10 records)
-- Various carriers and plan types
-- Price range: $15.00 - $99.99
-- Data options: 1GB to Unlimited
-- Plan types: POSTPAID and PREPAID
+### 4. Network Type Detection
 
-## Testing
+**Challenge**: Different network types require different handling.
 
-### Test API Endpoints
+**Solution**:
+```kotlin
+// Map network types to human-readable strings
+private fun getNetworkTypeString(networkType: Int): String {
+    return when (networkType) {
+        TelephonyManager.NETWORK_TYPE_LTE -> "LTE"
+        TelephonyManager.NETWORK_TYPE_NR -> "5G"
+        TelephonyManager.NETWORK_TYPE_UMTS -> "3G"
+        else -> "UNKNOWN"
+    }
+}
+```
+
+### 5. Carrier-Specific Operations
+
+**Challenge**: Different carriers have different APIs and requirements.
+
+**Solution**:
+```kotlin
+// Carrier-specific sync logic
+when {
+    carrierName.contains("AT&T", ignoreCase = true) -> {
+        // AT&T specific sync logic
+    }
+    carrierName.contains("Verizon", ignoreCase = true) -> {
+        // Verizon specific sync logic
+    }
+    else -> {
+        // Generic sync logic
+    }
+}
+```
+
+## ⚡ Performance Optimization
+
+### Battery Efficiency
+
+#### 1. WorkManager for Background Tasks
+```kotlin
+// Battery-efficient background processing
+val workRequest = OneTimeWorkRequestBuilder<BalanceSyncWorker>()
+    .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10, TimeUnit.SECONDS)
+    .setConstraints(
+        Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
+    )
+    .build()
+```
+
+#### 2. Coroutines for Async Operations
+```kotlin
+// Non-blocking operations
+viewModelScope.launch {
+    val simCards = telephonyRepository.getSimCardInfo()
+    _simCards.value = simCards
+}
+```
+
+#### 3. Efficient Database Operations
+```kotlin
+// Room database with efficient queries
+@Query("SELECT * FROM sim_switch_events ORDER BY timestamp DESC")
+fun getAllSimSwitchEvents(): Flow<List<SimSwitchEvent>>
+```
+
+### Memory Management
+
+#### 1. Lifecycle-Aware Observers
+```kotlin
+// Prevents memory leaks
+viewModel.simCards.observe(this) { simCards ->
+    // UI updates
+}
+```
+
+#### 2. ViewBinding for Efficient View Access
+```kotlin
+// Type-safe view access
+private lateinit var binding: ActivityMainBinding
+binding.tvCarrierName.text = simCard.carrierName
+```
+
+#### 3. Efficient Data Structures
+```kotlin
+// Use data classes for efficient memory usage
+data class SimCardInfo(
+    val slotNumber: Int,
+    val carrierName: String?,
+    val simState: String,
+    val networkType: String?
+)
+```
+
+## 🧪 Testing
+
+### Unit Tests
 ```bash
-# Get all SIM cards
-curl http://simcards.directdevhub.com/simcards.php
-
-# Get all telecom plans
-curl http://simcards.directdevhub.com/telecom_plans.php
-
-# Get plans by carrier
-curl "http://simcards.directdevhub.com/telecom_plans.php?carrier=Verizon"
+# Run unit tests
+./gradlew test
 ```
 
-### Android App Testing
-1. Build and install the Android app
-2. Grant phone state permissions
-3. View SIM card information
-4. Browse telecom plans
-5. Test offline functionality
+### Instrumented Tests
+```bash
+# Run instrumented tests
+./gradlew connectedAndroidTest
+```
 
-## Security Notes
-- API includes CORS headers for cross-origin requests
+### API Testing
+```bash
+# Test API endpoints
+curl https://your-domain.com/task/simcards.php
+curl https://your-domain.com/task/telecom_plans.php
+```
+
+## 🔒 Security Considerations
+
+### 1. Permission Handling
+- Runtime permission requests
+- Graceful fallback for denied permissions
+- User-friendly permission rationale
+
+### 2. API Security
 - Input validation and sanitization
 - Prepared statements to prevent SQL injection
-- Error handling with appropriate HTTP status codes
+- CORS headers for cross-origin requests
 
-## File Structure
+### 3. Data Protection
+- Local database encryption
+- Secure credential storage
+- Network security (HTTPS)
+
+## 📱 Device Compatibility
+
+### Supported Android Versions
+- **Minimum**: Android 7.0 (API 24)
+- **Target**: Android 14 (API 34)
+- **Recommended**: Android 8.0+ (API 26+)
+
+### Device Requirements
+- **Telephony Support**: Required
+- **Multi-SIM**: Optional (graceful degradation)
+- **Network**: Required for full functionality
+
+## 🚀 Deployment
+
+### Android App
+1. Build release APK:
+```bash
+./gradlew assembleRelease
 ```
-├── database_setup.sql          # Database schema and dummy data
-├── simcards.php               # SIM cards API endpoint
-├── telecom_plans.php          # Telecom plans API endpoint
-├── README.md                  # This file
-└── app/                       # Android app source code
-    ├── src/main/java/
-    │   └── com/ultranet/simcardmanager/
-    │       ├── data/
-    │       │   ├── api/       # Retrofit API interfaces
-    │       │   ├── database/  # Room database components
-    │       │   └── repository/# Repository classes
-    │       ├── domain/
-    │       │   ├── models/    # Data models
-    │       │   └── usecases/  # Use cases
-    │       └── ui/
-    │           ├── activities/# Activities
-    │           └── adapters/  # RecyclerView adapters
-    └── src/main/res/
-        └── layout/            # Layout files
-``` 
+
+2. Sign the APK with your keystore
+3. Upload to Google Play Store or distribute directly
+
+### Backend API
+1. Upload PHP files to web server
+2. Configure database connection
+3. Set up SSL certificate for HTTPS
+4. Configure CORS headers
+
+## 📊 Monitoring & Analytics
+
+### Performance Monitoring
+- WorkManager execution tracking
+- Database operation monitoring
+- API call performance metrics
+
+### Error Tracking
+- Crash reporting integration
+- Network error logging
+- Permission denial tracking
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests for new functionality
+5. Submit a pull request
+
+## 📄 License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## 📞 Support
+
+For support and questions:
+- Create an issue on GitHub
+- Contact: support@example.com
+- Documentation: [Wiki Link]
+
+---
+
+**Note**: This application is designed for educational and demonstration purposes. Real-world deployment requires additional security measures and carrier-specific API integrations. 

@@ -1,7 +1,6 @@
 package com.ultranet.simcardmanager
 
 import android.Manifest
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.widget.Toast
@@ -17,33 +16,55 @@ import androidx.lifecycle.observe
 import androidx.recyclerview.widget.LinearLayoutManager
 import kotlinx.coroutines.launch
 import androidx.work.WorkManager
+import com.ultranet.simcardmanager.data.api.TelecomRetrofitClient
 import com.ultranet.simcardmanager.data.database.AppDatabase
 import com.ultranet.simcardmanager.data.repository.SimSwitchRepository
+import com.ultranet.simcardmanager.data.repository.TelecomRepository
 import com.ultranet.simcardmanager.data.repository.TelephonyRepository
 import com.ultranet.simcardmanager.databinding.ActivityMainBinding
 import com.ultranet.simcardmanager.domain.models.SimCardInfo
+import com.ultranet.simcardmanager.domain.models.TelecomPlan
 import com.ultranet.simcardmanager.ui.activities.SimCardViewModel
-import com.ultranet.simcardmanager.ui.activities.SimSlotsActivity
-import com.ultranet.simcardmanager.ui.activities.TelecomPlansActivity
+import com.ultranet.simcardmanager.ui.activities.TelecomPlansViewModel
 import com.ultranet.simcardmanager.ui.adapters.SimCardInfoAdapter
+import com.ultranet.simcardmanager.ui.adapters.TelecomPlanAdapter
 import com.ultranet.simcardmanager.ui.fragments.SimSwitchDialogFragment
 import com.ultranet.simcardmanager.utils.BalanceSyncWorker
 import com.ultranet.simcardmanager.utils.PermissionUtils
 
+/**
+ * MainActivity - Streamlined SIM Card Manager
+ * 
+ * FEATURES:
+ * 1. Permission check on launch
+ * 2. Display SIM details (slot, carrier, state, network)
+ * 3. Show telecom plans with Retrofit API and Room caching
+ * 4. Plan selection capability
+ * 5. "Switch SIM" button with confirmation dialog
+ * 6. Log SimSwitchEvent to Room database
+ * 7. Trigger WorkManager balance sync
+ * 8. Handle offline with cached data
+ * 
+ * PERMISSION HANDLING:
+ * - Bulletproof READ_PHONE_STATE permission handling
+ * - Runtime request → rationale dialog → mock data fallback → Settings redirect
+ * - App never crashes due to permissions
+ */
 class MainActivity : AppCompatActivity() {
     
     private lateinit var binding: ActivityMainBinding
     private lateinit var simCardInfoAdapter: SimCardInfoAdapter
-    private lateinit var viewModel: SimCardViewModel
+    private lateinit var telecomPlanAdapter: TelecomPlanAdapter
+    private lateinit var simCardViewModel: SimCardViewModel
+    private lateinit var telecomPlansViewModel: TelecomPlansViewModel
     private lateinit var simSwitchRepository: SimSwitchRepository
     private lateinit var workManager: WorkManager
     
-    // Permission launcher using ActivityResultContracts
-    private val permissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions ->
-        handlePermissionResults(permissions)
-    }
+    /**
+     * Permission launcher for READ_PHONE_STATE
+     * Bulletproof permission handling with fallback
+     */
+    private lateinit var permissionLauncher: androidx.activity.result.ActivityResultLauncher<String>
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -58,24 +79,53 @@ class MainActivity : AppCompatActivity() {
             insets
         }
         
-        setupViewModel()
-        setupRecyclerView()
+        // Initialize permission launcher after binding setup
+        permissionLauncher = registerForActivityResult(
+            ActivityResultContracts.RequestPermission()
+        ) { isGranted ->
+            handlePermissionResult(isGranted)
+        }
+        
+        setupComponents()
+        setupRecyclerViews()
         setupObservers()
-        setupNavigationButtons()
-        setupSimSwitchComponents()
-        checkPermissionsAndCompatibility()
+        setupClickListeners()
+        
+        // Delay permission check to ensure activity is fully initialized
+        binding.main.post {
+            checkPermissionOnLaunch()
+        }
     }
     
-    private fun setupViewModel() {
+    /**
+     * Setup all components including ViewModels and Repositories
+     */
+    private fun setupComponents() {
+        // Setup SIM card components
         val telephonyRepository = TelephonyRepository(this)
-        viewModel = SimCardViewModel(telephonyRepository)
+        simCardViewModel = SimCardViewModel(telephonyRepository)
+        
+        // Setup telecom plans components
+        val database = AppDatabase.getDatabase(this)
+        val telecomRepository = TelecomRepository(
+            database.telecomPlanDao(),
+            TelecomRetrofitClient.telecomApiService
+        )
+        telecomPlansViewModel = TelecomPlansViewModel(telecomRepository)
+        
+        // Setup SIM switch components
+        simSwitchRepository = SimSwitchRepository(database.simSwitchDao())
+        workManager = WorkManager.getInstance(applicationContext)
     }
     
-    private fun setupRecyclerView() {
+    /**
+     * Setup RecyclerViews for SIM cards and telecom plans
+     */
+    private fun setupRecyclerViews() {
+        // SIM Cards RecyclerView
         simCardInfoAdapter = SimCardInfoAdapter(
             onSimCardClick = { simCardInfo ->
-                // Handle SIM card click
-                Toast.makeText(this, "Selected: ${simCardInfo.carrierName}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "SIM: ${simCardInfo.carrierName}", Toast.LENGTH_SHORT).show()
             }
         )
         
@@ -83,33 +133,289 @@ class MainActivity : AppCompatActivity() {
             layoutManager = LinearLayoutManager(this@MainActivity)
             adapter = simCardInfoAdapter
         }
+        
+        // Telecom Plans RecyclerView
+        telecomPlanAdapter = TelecomPlanAdapter(
+            onPlanClick = { plan ->
+                Toast.makeText(this, "Plan: ${plan.name}", Toast.LENGTH_SHORT).show()
+            },
+            onPlanSelect = { plan ->
+                telecomPlansViewModel.selectPlan(plan)
+                Toast.makeText(this, "Selected: ${plan.name}", Toast.LENGTH_SHORT).show()
+            }
+        )
+        
+        binding.recyclerViewTelecomPlans.apply {
+            layoutManager = LinearLayoutManager(this@MainActivity)
+            adapter = telecomPlanAdapter
+        }
     }
     
-    private fun setupNavigationButtons() {
-        // Telecom Plans Button
-        binding.btnTelecomPlans.setOnClickListener {
-            val intent = Intent(this, TelecomPlansActivity::class.java)
-            startActivity(intent)
+    /**
+     * Setup LiveData observers for UI updates
+     */
+    private fun setupObservers() {
+        // SIM Cards observers
+        simCardViewModel.simCards.observe(this) { simCards ->
+            simCardInfoAdapter.submitList(simCards)
+            binding.tvSimEmptyState.visibility = if (simCards.isEmpty()) android.view.View.VISIBLE else android.view.View.GONE
         }
         
-        // SIM Slots Button
-//        binding.btnSimSlots.setOnClickListener {
-//            val intent = Intent(this, SimSlotsActivity::class.java)
-//            startActivity(intent)
-//        }
+        simCardViewModel.isLoading.observe(this) { isLoading ->
+            binding.progressBarSim.visibility = if (isLoading) android.view.View.VISIBLE else android.view.View.GONE
+        }
         
-        // Switch SIM Button
+        simCardViewModel.error.observe(this) { error ->
+            error?.let {
+                Toast.makeText(this, it, Toast.LENGTH_LONG).show()
+                simCardViewModel.clearError()
+            }
+        }
+        
+        // Telecom Plans observers
+        telecomPlansViewModel.uiState.observe(this) { state ->
+            when (state) {
+                is com.ultranet.simcardmanager.domain.models.UiState.Loading -> {
+                    binding.progressBarPlans.visibility = android.view.View.VISIBLE
+                    binding.recyclerViewTelecomPlans.visibility = android.view.View.GONE
+                    binding.tvPlansEmptyState.visibility = android.view.View.GONE
+                }
+                is com.ultranet.simcardmanager.domain.models.UiState.Success -> {
+                    binding.progressBarPlans.visibility = android.view.View.GONE
+                    binding.recyclerViewTelecomPlans.visibility = android.view.View.VISIBLE
+                    binding.tvPlansEmptyState.visibility = android.view.View.GONE
+                    telecomPlanAdapter.submitList(state.data)
+                }
+                is com.ultranet.simcardmanager.domain.models.UiState.Error -> {
+                    binding.progressBarPlans.visibility = android.view.View.GONE
+                    binding.recyclerViewTelecomPlans.visibility = android.view.View.GONE
+                    binding.tvPlansEmptyState.visibility = android.view.View.GONE
+                    Toast.makeText(this, state.message, Toast.LENGTH_LONG).show()
+                }
+                is com.ultranet.simcardmanager.domain.models.UiState.Empty -> {
+                    binding.progressBarPlans.visibility = android.view.View.GONE
+                    binding.recyclerViewTelecomPlans.visibility = android.view.View.GONE
+                    binding.tvPlansEmptyState.visibility = android.view.View.VISIBLE
+                }
+            }
+        }
+        
+        telecomPlansViewModel.selectedPlan.observe(this) { selectedPlan ->
+            selectedPlan?.let { plan ->
+                binding.tvSelectedPlan.text = "Selected: ${plan.name} - $${String.format("%.2f", plan.price)}"
+                binding.tvSelectedPlan.visibility = android.view.View.VISIBLE
+            } ?: run {
+                binding.tvSelectedPlan.visibility = android.view.View.GONE
+            }
+        }
+    }
+    
+    /**
+     * Setup click listeners for buttons
+     */
+    private fun setupClickListeners() {
+        // Switch SIM button
         binding.btnSwitchSim.setOnClickListener {
             showSimSwitchDialog()
         }
+        
+        // Refresh telecom plans
+        binding.btnRefreshPlans.setOnClickListener {
+            telecomPlansViewModel.refreshTelecomPlans()
+        }
+        
+        // Clear plan selection
+        binding.btnClearSelection.setOnClickListener {
+            telecomPlansViewModel.clearSelection()
+        }
     }
     
-    private fun setupSimSwitchComponents() {
-        val database = AppDatabase.getDatabase(this)
-        simSwitchRepository = SimSwitchRepository(database.simSwitchDao())
-        workManager = WorkManager.getInstance(applicationContext)
+    /**
+     * Check permission on app launch
+     * Bulletproof permission handling
+     */
+    private fun checkPermissionOnLaunch() {
+        android.util.Log.d("MainActivity", "checkPermissionOnLaunch: hasPermission=${hasPhoneStatePermission()}")
+        
+        if (hasPhoneStatePermission()) {
+            // Permission granted, load data
+            android.util.Log.d("MainActivity", "Permission already granted, loading data")
+            loadData()
+        } else {
+            // Always request permission on first launch
+            android.util.Log.d("MainActivity", "Permission not granted, requesting permission")
+            Toast.makeText(this, "Requesting phone permission...", Toast.LENGTH_SHORT).show()
+            requestPermission()
+        }
     }
     
+    /**
+     * Check if READ_PHONE_STATE permission is granted
+     */
+    private fun hasPhoneStatePermission(): Boolean {
+        return ContextCompat.checkSelfPermission(
+            this, 
+            Manifest.permission.READ_PHONE_STATE
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+    
+    /**
+     * Handle missing permission with bulletproof flow
+     */
+    private fun handleMissingPermission() {
+        android.util.Log.d("MainActivity", "handleMissingPermission: shouldShowRationale=${shouldShowPermissionRationale()}, isPermanentlyDenied=${isPermissionPermanentlyDenied()}")
+        
+        if (shouldShowPermissionRationale()) {
+            // Show rationale dialog
+            android.util.Log.d("MainActivity", "Showing permission rationale dialog")
+            showPermissionRationaleDialog()
+        } else if (isPermissionPermanentlyDenied()) {
+            // Show settings redirect dialog
+            android.util.Log.d("MainActivity", "Showing settings redirect dialog")
+            showSettingsRedirectDialog()
+        } else {
+            // Request permission directly
+            android.util.Log.d("MainActivity", "Requesting permission directly")
+            requestPermission()
+        }
+    }
+    
+    /**
+     * Check if should show permission rationale
+     */
+    private fun shouldShowPermissionRationale(): Boolean {
+        return ActivityCompat.shouldShowRequestPermissionRationale(
+            this, 
+            Manifest.permission.READ_PHONE_STATE
+        )
+    }
+    
+    /**
+     * Check if permission is permanently denied
+     */
+    private fun isPermissionPermanentlyDenied(): Boolean {
+        return !hasPhoneStatePermission() && !shouldShowPermissionRationale()
+    }
+    
+    /**
+     * Show permission rationale dialog
+     */
+    private fun showPermissionRationaleDialog() {
+        android.util.Log.d("MainActivity", "Showing permission rationale dialog")
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Permission Required")
+            .setMessage("Phone State permission is required to access SIM card information, including carrier details and network status.")
+            .setPositiveButton("Grant Permission") { _, _ ->
+                android.util.Log.d("MainActivity", "User clicked Grant Permission")
+                requestPermission()
+            }
+            .setNegativeButton("Cancel") { _, _ ->
+                android.util.Log.d("MainActivity", "User clicked Cancel, loading mock data")
+                // Load with mock data
+                loadDataWithMockSim()
+            }
+            .setCancelable(false)
+            .show()
+    }
+    
+    /**
+     * Show settings redirect dialog
+     */
+    private fun showSettingsRedirectDialog() {
+        android.util.Log.d("MainActivity", "Showing settings redirect dialog")
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Permission Required")
+            .setMessage("Phone State permission has been permanently denied. Please enable it in Settings to access SIM card information.")
+            .setPositiveButton("Open Settings") { _, _ ->
+                android.util.Log.d("MainActivity", "User clicked Open Settings")
+                openAppSettings()
+            }
+            .setNegativeButton("Continue") { _, _ ->
+                android.util.Log.d("MainActivity", "User clicked Continue, loading mock data")
+                // Load with mock data
+                loadDataWithMockSim()
+            }
+            .setCancelable(false)
+            .show()
+    }
+    
+    /**
+     * Request READ_PHONE_STATE permission
+     */
+    private fun requestPermission() {
+        android.util.Log.d("MainActivity", "Requesting READ_PHONE_STATE permission")
+        Toast.makeText(this, "Permission dialog should appear now", Toast.LENGTH_SHORT).show()
+        permissionLauncher.launch(Manifest.permission.READ_PHONE_STATE)
+    }
+    
+    /**
+     * Handle permission request result
+     */
+    private fun handlePermissionResult(isGranted: Boolean) {
+        android.util.Log.d("MainActivity", "handlePermissionResult: isGranted=$isGranted")
+        
+        if (isGranted) {
+            // Permission granted, load real data
+            android.util.Log.d("MainActivity", "Permission granted, loading real data")
+            loadData()
+            Toast.makeText(this, "Permission granted! Loading SIM information...", Toast.LENGTH_SHORT).show()
+        } else {
+            // Permission denied, check if permanently denied
+            android.util.Log.d("MainActivity", "Permission denied, checking if permanently denied")
+            if (isPermissionPermanentlyDenied()) {
+                // Show settings redirect dialog
+                android.util.Log.d("MainActivity", "Permission permanently denied, showing settings dialog")
+                showSettingsRedirectDialog()
+            } else {
+                // Show rationale dialog for next time
+                android.util.Log.d("MainActivity", "Permission denied but not permanently, showing rationale")
+                showPermissionRationaleDialog()
+            }
+        }
+    }
+    
+    /**
+     * Load data with real SIM information
+     */
+    private fun loadData() {
+        simCardViewModel.refreshSimCards()
+        telecomPlansViewModel.loadTelecomPlans()
+    }
+    
+    /**
+     * Load data with mock SIM information (fallback)
+     */
+    private fun loadDataWithMockSim() {
+        // Load telecom plans (works offline)
+        telecomPlansViewModel.loadTelecomPlans()
+        
+        // Show mock SIM data
+        val mockSimCards = listOf(
+            SimCardInfo(
+                slotNumber = 0,
+                carrierName = "Mock Carrier (Permission Required)",
+                simState = "READY",
+                networkType = "4G"
+            )
+        )
+        simCardInfoAdapter.submitList(mockSimCards)
+        binding.tvSimEmptyState.visibility = android.view.View.GONE
+    }
+    
+    /**
+     * Open app settings
+     */
+    private fun openAppSettings() {
+        val intent = android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+            data = android.net.Uri.fromParts("package", packageName, null)
+            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        startActivity(intent)
+    }
+    
+    /**
+     * Show SIM switch confirmation dialog
+     */
     private fun showSimSwitchDialog() {
         val dialog = SimSwitchDialogFragment.newInstance(
             onConfirm = {
@@ -122,23 +428,25 @@ class MainActivity : AppCompatActivity() {
         dialog.show(supportFragmentManager, SimSwitchDialogFragment.TAG)
     }
     
+    /**
+     * Perform SIM switching operation
+     */
     private fun performSimSwitch() {
-        // Get current SIM information
-        val currentSimCards = viewModel.simCards.value ?: emptyList()
+        val currentSimCards = simCardViewModel.simCards.value ?: emptyList()
         
         if (currentSimCards.isEmpty()) {
             Toast.makeText(this, "No SIM cards detected", Toast.LENGTH_SHORT).show()
             return
         }
         
-        // For demo purposes, switch between available SIM slots
+        // Simulate SIM switching
         val currentSlot = currentSimCards.firstOrNull()?.slotNumber ?: 0
         val nextSlot = if (currentSlot == 0) 1 else 0
         
         val currentSim = currentSimCards.firstOrNull()?.carrierName ?: "Unknown"
         val nextSim = if (currentSlot == 0) "Secondary SIM" else "Primary SIM"
         
-        // Log the SIM switch event
+        // Log switch event and trigger balance sync
         lifecycleScope.launch {
             try {
                 val eventId = simSwitchRepository.logSimSwitch(
@@ -149,7 +457,7 @@ class MainActivity : AppCompatActivity() {
                     switchReason = "Manual switch by user"
                 )
                 
-                // Schedule balance sync work
+                // Trigger WorkManager balance sync
                 val workRequest = BalanceSyncWorker.createWorkRequest(
                     simSlot = nextSlot,
                     carrierName = nextSim,
@@ -172,155 +480,5 @@ class MainActivity : AppCompatActivity() {
                 ).show()
             }
         }
-    }
-    
-    private fun setupObservers() {
-        viewModel.simCards.observe(this) { simCards ->
-            simCardInfoAdapter.submitList(simCards)
-            binding.tvEmptyState.visibility = if (simCards.isEmpty()) android.view.View.VISIBLE else android.view.View.GONE
-        }
-        
-        viewModel.isLoading.observe(this) { isLoading ->
-            binding.progressBar.visibility = if (isLoading) android.view.View.VISIBLE else android.view.View.GONE
-        }
-        
-        viewModel.error.observe(this) { error ->
-            error?.let {
-                Toast.makeText(this, it, Toast.LENGTH_LONG).show()
-                viewModel.clearError()
-            }
-        }
-        
-        viewModel.hasPermissions.observe(this) { hasPermissions ->
-            if (!hasPermissions) {
-                Toast.makeText(this, "Phone state permission required", Toast.LENGTH_LONG).show()
-            }
-        }
-    }
-    
-    private fun checkPermissionsAndCompatibility() {
-        // Check device compatibility first
-        val compatibilityInfo = PermissionUtils.getDeviceCompatibilityInfo(this)
-        
-        if (!compatibilityInfo.isTelephonySupported) {
-            showCompatibilityDialog(compatibilityInfo)
-            return
-        }
-        
-        if (!compatibilityInfo.isFullyCompatible()) {
-            showLimitedCompatibilityDialog(compatibilityInfo)
-        }
-        
-        // Check permissions
-        if (PermissionUtils.hasRequiredPermissions(this)) {
-            viewModel.refreshSimCards()
-        } else {
-            handleMissingPermissions()
-        }
-    }
-    
-    private fun handleMissingPermissions() {
-        val missingPermissions = PermissionUtils.getMissingPermissions(this)
-        
-        if (PermissionUtils.hasAnyPermissionPermanentlyDenied(this)) {
-            // Show settings redirect dialog
-            PermissionUtils.showSettingsRedirectDialog(
-                activity = this,
-                onPositiveClick = {
-                    PermissionUtils.openAppSettings(this)
-                },
-                onNegativeClick = {
-                    Toast.makeText(this, "Some features may not work without required permissions", Toast.LENGTH_LONG).show()
-                }
-            )
-        } else {
-            // Check if we should show rationale for any permission
-            val permissionsNeedingRationale = missingPermissions.filter { permission ->
-                PermissionUtils.shouldShowPermissionRationale(this, permission)
-            }
-            
-            if (permissionsNeedingRationale.isNotEmpty()) {
-                // Show rationale for the first permission that needs it
-                val permission = permissionsNeedingRationale.first()
-                PermissionUtils.showPermissionRationaleDialog(
-                    activity = this,
-                    permission = permission,
-                    onPositiveClick = {
-                        requestPermissions()
-                    },
-                    onNegativeClick = {
-                        Toast.makeText(this, "Permission required for full functionality", Toast.LENGTH_SHORT).show()
-                    }
-                )
-            } else {
-                // Request permissions directly
-                requestPermissions()
-            }
-        }
-    }
-    
-    private fun requestPermissions() {
-        permissionLauncher.launch(PermissionUtils.REQUIRED_PERMISSIONS)
-    }
-    
-    private fun handlePermissionResults(permissions: Map<String, Boolean>) {
-        val allGranted = permissions.values.all { it }
-        
-        if (allGranted) {
-            viewModel.refreshSimCards()
-            Toast.makeText(this, "Permissions granted! Loading SIM card information...", Toast.LENGTH_SHORT).show()
-        } else {
-            val deniedPermissions = permissions.filterValues { !it }.keys.toList()
-            val deniedPermissionNames = deniedPermissions.joinToString(", ") { permission ->
-                PermissionUtils.getPermissionDisplayName(permission)
-            }
-            
-            Toast.makeText(
-                this,
-                "Some permissions were denied: $deniedPermissionNames. Some features may not work properly.",
-                Toast.LENGTH_LONG
-            ).show()
-            
-            // Check if any permissions are permanently denied
-            if (PermissionUtils.hasAnyPermissionPermanentlyDenied(this)) {
-                showPermanentlyDeniedDialog()
-            }
-        }
-    }
-    
-    private fun showCompatibilityDialog(compatibilityInfo: PermissionUtils.DeviceCompatibilityInfo) {
-        androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("Device Not Compatible")
-            .setMessage(compatibilityInfo.getCompatibilityMessage())
-            .setPositiveButton("OK") { _, _ ->
-                // Continue with limited functionality
-            }
-            .setCancelable(false)
-            .show()
-    }
-    
-    private fun showLimitedCompatibilityDialog(compatibilityInfo: PermissionUtils.DeviceCompatibilityInfo) {
-        androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("Limited Compatibility")
-            .setMessage(compatibilityInfo.getCompatibilityMessage())
-            .setPositiveButton("Continue") { _, _ ->
-                // Continue with limited functionality
-            }
-            .setCancelable(true)
-            .show()
-    }
-    
-    private fun showPermanentlyDeniedDialog() {
-        androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("Permissions Required")
-            .setMessage("Some permissions have been permanently denied. To use all features, please enable them in Settings.")
-            .setPositiveButton("Open Settings") { _, _ ->
-                PermissionUtils.openAppSettings(this)
-            }
-            .setNegativeButton("Continue") { _, _ ->
-                // Continue with limited functionality
-            }
-            .setCancelable(true)
-            .show()
     }
 }

@@ -27,14 +27,6 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <activity
-            android:name=".ui.activities.TelecomPlansActivity"
-            android:exported="false"
-            android:parentActivityName=".MainActivity" />
-        <activity
-            android:name=".ui.activities.SimSlotsActivity"
-            android:exported="false"
-            android:parentActivityName=".MainActivity" />
     </application>
 
 </manifest>

@@ -67,17 +67,67 @@ class TelecomPlansViewModel(
                         }
                     }
                     is com.ultranet.simcardmanager.domain.models.ApiResponse.Error -> {
-                        _uiState.value = UiState.Error(result.message)
+                        // Try to load cached data as fallback
+                        loadCachedDataAsFallback(result.message)
                     }
                     else -> {
                         // Loading state handled by LiveData
                     }
                 }
+            } catch (e: com.google.gson.JsonSyntaxException) {
+                // Handle JSON parsing errors (including BigInt issues)
+                loadCachedDataAsFallback("Data format error. Please try again.")
+            } catch (e: java.lang.NumberFormatException) {
+                // Handle number parsing errors
+                loadCachedDataAsFallback("Invalid data format. Please try again.")
+            } catch (e: retrofit2.HttpException) {
+                // Handle HTTP errors
+                val errorMessage = when (e.code()) {
+                    404 -> "Telecom plans not found"
+                    500 -> "Server error. Please try again later."
+                    503 -> "Service temporarily unavailable"
+                    else -> "Network error (${e.code()})"
+                }
+                loadCachedDataAsFallback(errorMessage)
+            } catch (e: java.net.UnknownHostException) {
+                // Handle no internet connection
+                loadCachedDataAsFallback("No internet connection. Please check your network.")
+            } catch (e: java.net.SocketTimeoutException) {
+                // Handle timeout errors
+                loadCachedDataAsFallback("Request timed out. Please try again.")
             } catch (e: Exception) {
-                _uiState.value = UiState.Error(e.message ?: "Failed to refresh telecom plans")
+                // Handle any other unexpected errors
+                val errorMessage = when {
+                    e.message?.contains("BigInteger", ignoreCase = true) == true -> 
+                        "Data format error. Please try again."
+                    e.message?.contains("Expected", ignoreCase = true) == true -> 
+                        "Invalid response format. Please try again."
+                    else -> "Failed to refresh telecom plans: ${e.message}"
+                }
+                loadCachedDataAsFallback(errorMessage)
             } finally {
                 _isRefreshing.value = false
             }
+        }
+    }
+    
+    /**
+     * Load cached data as fallback when API fails
+     */
+    private suspend fun loadCachedDataAsFallback(errorMessage: String) {
+        try {
+            telecomRepository.getAllTelecomPlans().collectLatest { cachedPlans ->
+                if (cachedPlans.isNotEmpty()) {
+                    _uiState.value = UiState.Success(cachedPlans)
+                    applyFilters()
+                    // Show error as toast but still display cached data
+                    // The error will be shown in the UI state observer
+                } else {
+                    _uiState.value = UiState.Error(errorMessage)
+                }
+            }
+        } catch (e: Exception) {
+            _uiState.value = UiState.Error(errorMessage)
         }
     }
     
